@@ -54,12 +54,27 @@ Each `/yolo` invocation advances to the next mode and wraps back around:
 off → writes-yolo → full-yolo → off → …
 ```
 
-The current mode is shown in the footer status bar. It is also persisted in the session so it survives a `/reload`.
+The current mode is shown in the footer status bar. It is also persisted in the session so it survives a `/reload`. You can also set the initial mode at launch with the [`--nolo-mode` CLI flag](#cli-flag--automation).
 
 ### When to use each mode
 
 - **`writes`** — you trust the edits but still want a gate on shell commands.
 - **`full`** — you want the agent to run completely hands-free. Use with caution.
+
+### CLI flag / automation
+
+For hands-free or non-interactive runs (`pi -p "..."`), cycling modes with `/yolo` isn't possible. Use the `--nolo-mode` flag to start a session directly in a chosen mode:
+
+```bash
+pi --nolo-mode full -p "do the thing"
+```
+
+The flag accepts `off`, `writes`, or `full` and appears in `pi --help`.
+
+- **Precedence**: when present and valid, the flag always wins — it overrides any mode persisted in the session.
+- **Absence**: omitting the flag changes nothing; the default (`off`) or restored session mode is used, exactly as before.
+- **Invalid value**: an unrecognized value (e.g. `--nolo-mode turbo`) is ignored — the restored/default mode is kept and a warning is shown in interactive sessions.
+- **Restart caveat**: like `shortcut`, the flag is resolved when the extension loads, so it only takes effect on a fresh launch (not on `/reload`). Toggling with `/yolo` after launch still works and overrides the flag's value.
 
 ## Bash Command Allowlist
 

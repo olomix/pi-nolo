@@ -23,6 +23,7 @@ import {
   restoreYoloMode,
   renderStatus,
   cycleYoloMode,
+  applyFlagMode,
 } from "./src/yolo.js";
 import { registerPreRenderEdit } from "./src/pre-render-edit.js";
 
@@ -32,15 +33,40 @@ export default function (pi: ExtensionAPI) {
   let segmentDangerousRegexes = DEFAULT_SEGMENT_DANGEROUS_PATTERNS.map((p) => new RegExp(p));
   const yolo = createYoloState();
 
+  // The flag seeds the *initial* mode only, so it is applied at most once per
+  // process incarnation. Note this closure cannot carry state across /reload:
+  // pi re-runs this factory on every reload (jiti moduleCache: false), so the
+  // reload exclusion below relies on the session_start `reason`, not this flag.
+  let flagApplied = false;
+
+  // Resolved at CLI parse time, so it can seed the initial mode for
+  // non-interactive runs (e.g. `pi --nolo-mode full -p "..."`).
+  pi.registerFlag("nolo-mode", {
+    type: "string",
+    description: "Initial YOLO mode: off | writes | full",
+  });
+
   // --- Session start: restore mode + reload config ---
 
-  pi.on("session_start", async (_event, ctx) => {
+  pi.on("session_start", async (event, ctx) => {
     const config = loadConfig();
     safePrefixes = config.safePrefixes;
     dangerousRegexes = config.dangerousRegexes;
     segmentDangerousRegexes = config.segmentDangerousRegexes;
 
     restoreYoloMode(ctx.sessionManager.getEntries(), yolo);
+
+    // An explicit, valid --nolo-mode always wins over the restored/default
+    // mode; an invalid non-empty value is reported but never applied. The
+    // applied mode is persisted (see applyFlagMode) so restoreYoloMode picks it
+    // up on /reload. Skip on /reload itself: reload re-runs this factory and
+    // re-seeds the launch flag value, so re-applying would clobber a
+    // mid-session /yolo toggle back to the launch mode — silently re-entering
+    // `full` after a deliberate downgrade.
+    if (!flagApplied && event.reason !== "reload") {
+      flagApplied = true;
+      applyFlagMode(yolo, pi, pi.getFlag("nolo-mode"), ctx);
+    }
 
     if (ctx.hasUI) {
       ctx.ui.setStatus("nolo", renderStatus(yolo, ctx.ui.theme));
