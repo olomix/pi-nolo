@@ -13,6 +13,44 @@ export function createYoloState(): YoloState {
   return { mode: "off" };
 }
 
+/**
+ * Resolve a raw flag value to a `YoloMode`, or `undefined` if it is not one of
+ * the known modes. Used by the `--nolo-mode` CLI flag; `undefined` lets the
+ * caller fall back to the restored/default mode instead of overriding it.
+ */
+export function parseYoloMode(raw: unknown): YoloMode | undefined {
+  if (typeof raw === "string" && YOLO_MODES.includes(raw as YoloMode)) {
+    return raw as YoloMode;
+  }
+  return undefined;
+}
+
+/**
+ * Apply the `--nolo-mode` CLI flag over the restored/default mode. A valid
+ * value always wins; an invalid non-empty value is reported (UI sessions only)
+ * but never applied, leaving the prior mode intact; an absent flag is a no-op.
+ *
+ * A valid mode is persisted via `appendEntry` so it becomes the latest session
+ * entry. Without this, `/reload` (which re-runs `restoreYoloMode` from the
+ * persisted history and skips the flag) would restore an older persisted mode,
+ * silently dropping the flag — e.g. launching `--nolo-mode off` over a session
+ * persisted as `full` would snap back to `full` on reload.
+ */
+export function applyFlagMode(
+  state: YoloState,
+  pi: Pick<ExtensionAPI, "appendEntry">,
+  rawFlag: unknown,
+  ctx: { hasUI: boolean; ui: { notify: (msg: string, type: string) => void } },
+): void {
+  const flagMode = parseYoloMode(rawFlag);
+  if (flagMode) {
+    state.mode = flagMode;
+    pi.appendEntry(YOLO_ENTRY_TYPE, { mode: state.mode });
+  } else if (typeof rawFlag === "string" && rawFlag !== "" && ctx.hasUI) {
+    ctx.ui.notify(`Invalid --nolo-mode "${rawFlag}"; using ${state.mode}`, "warning");
+  }
+}
+
 /** Restore persisted mode from the session history (call on session_start). */
 export function restoreYoloMode(
   entries: Array<{ type: string; customType?: string; data?: unknown }>,

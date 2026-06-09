@@ -5,6 +5,8 @@ import {
   restoreYoloMode,
   renderStatus,
   cycleYoloMode,
+  parseYoloMode,
+  applyFlagMode,
 } from "../src/yolo.js";
 import { YOLO_ENTRY_TYPE } from "../src/types.js";
 
@@ -72,6 +74,120 @@ describe("restoreYoloMode", () => {
     ];
     restoreYoloMode(entries, state);
     assert.equal(state.mode, "off");
+  });
+});
+
+describe("parseYoloMode", () => {
+  it("returns matching mode for valid values", () => {
+    assert.equal(parseYoloMode("off"), "off");
+    assert.equal(parseYoloMode("writes"), "writes");
+    assert.equal(parseYoloMode("full"), "full");
+  });
+
+  it("returns undefined for unknown string values", () => {
+    assert.equal(parseYoloMode("turbo"), undefined);
+  });
+
+  it("returns undefined for the empty string", () => {
+    assert.equal(parseYoloMode(""), undefined);
+  });
+
+  it("returns undefined for undefined", () => {
+    assert.equal(parseYoloMode(undefined), undefined);
+  });
+
+  it("returns undefined for non-string input", () => {
+    assert.equal(parseYoloMode(true), undefined);
+    assert.equal(parseYoloMode(0), undefined);
+    assert.equal(parseYoloMode(null), undefined);
+  });
+});
+
+describe("applyFlagMode", () => {
+  function makeCtx(hasUI: boolean) {
+    const notifications: Array<{ msg: string; type: string }> = [];
+    return {
+      hasUI,
+      notifications,
+      ui: {
+        notify(msg: string, type: string) { notifications.push({ msg, type }); },
+      },
+    };
+  }
+
+  function makePi() {
+    const appended: Array<{ type: string; data: unknown }> = [];
+    return {
+      appended,
+      appendEntry(type: string, data: unknown) { appended.push({ type, data }); },
+    };
+  }
+
+  it("overrides the restored/default mode with a valid flag", () => {
+    const state = createYoloState();
+    state.mode = "writes"; // simulate a restored mode
+    const pi = makePi();
+    const ctx = makeCtx(true);
+    applyFlagMode(state, pi as any, "full", ctx as any);
+    assert.equal(state.mode, "full");
+    assert.equal(ctx.notifications.length, 0);
+  });
+
+  it("persists a valid flag mode so it survives /reload", () => {
+    const state = createYoloState();
+    state.mode = "full"; // simulate a session persisted as full
+    const pi = makePi();
+    const ctx = makeCtx(true);
+    applyFlagMode(state, pi as any, "off", ctx as any);
+    assert.equal(state.mode, "off");
+    assert.equal(pi.appended.length, 1);
+    assert.equal(pi.appended[0].type, YOLO_ENTRY_TYPE);
+    assert.deepEqual((pi.appended[0].data as any).mode, "off");
+  });
+
+  it("leaves the mode untouched when the flag is absent", () => {
+    const state = createYoloState();
+    state.mode = "writes";
+    const pi = makePi();
+    const ctx = makeCtx(true);
+    applyFlagMode(state, pi as any, undefined, ctx as any);
+    assert.equal(state.mode, "writes");
+    assert.equal(ctx.notifications.length, 0);
+    assert.equal(pi.appended.length, 0);
+  });
+
+  it("leaves the mode untouched and stays silent for the empty string", () => {
+    const state = createYoloState();
+    const pi = makePi();
+    const ctx = makeCtx(true);
+    applyFlagMode(state, pi as any, "", ctx as any);
+    assert.equal(state.mode, "off");
+    assert.equal(ctx.notifications.length, 0);
+    assert.equal(pi.appended.length, 0);
+  });
+
+  it("keeps the prior mode and warns on an invalid value in UI sessions", () => {
+    const state = createYoloState();
+    state.mode = "writes";
+    const pi = makePi();
+    const ctx = makeCtx(true);
+    applyFlagMode(state, pi as any, "turbo", ctx as any);
+    assert.equal(state.mode, "writes");
+    assert.equal(ctx.notifications.length, 1);
+    assert.equal(ctx.notifications[0].type, "warning");
+    assert.match(ctx.notifications[0].msg, /turbo/);
+    assert.match(ctx.notifications[0].msg, /writes/);
+    assert.equal(pi.appended.length, 0);
+  });
+
+  it("does not notify on an invalid value when hasUI is false", () => {
+    const state = createYoloState();
+    const pi = makePi();
+    const ctx = makeCtx(false);
+    applyFlagMode(state, pi as any, "turbo", ctx as any);
+    assert.equal(state.mode, "off");
+    assert.equal(ctx.notifications.length, 0);
+    assert.equal(pi.appended.length, 0);
   });
 });
 
